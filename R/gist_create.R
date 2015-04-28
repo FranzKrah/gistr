@@ -92,7 +92,7 @@
 
 gist_create <- function(files=NULL, description = "", public = TRUE, browse = TRUE, code=NULL,
   filename="code.R", knit=FALSE, knitopts=list(), renderopts=list(), include_source = FALSE, 
-  artifacts = FALSE, imgur_inject = FALSE, ...) {
+  imgur_inject = FALSE, ...) {
   
   if (!is.null(code)) files <- code_handler(code, filename)
   if (knit) {
@@ -107,16 +107,14 @@ gist_create <- function(files=NULL, description = "", public = TRUE, browse = TR
       }
       inject_imgur(ff, imgur_inject)
       ff <- knit_render(ff, knitopts, renderopts)
-      if (artifacts) {
-        file_artifacts <- get_artifacts(ff, dirpath)
-        ff <- c(ff, file_artifacts)
-      }
       if (include_source) ff <- c(orig_files, ff)
       allfiles[[i]] <- ff
     }
   } else {
     allfiles <- files
   }
+  is_binary(allfiles)
+  is_dir(allfiles)
   body <- creategist(unlist(allfiles), description, public)
   res <- gist_POST(paste0(ghbase(), '/gists'), gist_auth(), ghead(), body, ...)
   gist <- as.gist(res)
@@ -144,11 +142,6 @@ knit_render <- function(x, knitopts, renderopts) {
   )
 }
 
-get_artifacts <- function(x, dirpath) {
-  imgs <- grep("!\\[", readLines(x), value = TRUE)
-  file.path(dirpath, sapply(imgs, getpath, USE.NAMES = FALSE))
-}
-
 getpath <- function(z) {
   gsub("^\\(|\\)$", "", strtrim(strextract(z, "\\(.+")))
 }
@@ -160,18 +153,18 @@ inject_imgur <- function(x, imgur_inject = TRUE) {
       str <- "```{r echo=FALSE}\nknitr::opts_knit$set(upload.fun = imgur_upload, base.url = NULL)\n```\n"
       cat(str, orig, file = x, sep = "\n")
     } 
-#     else if(grepl("\\.[rR]nw$", x)) {
-#       str <- "```{r echo=FALSE}\nknitr::opts_knit$set(upload.fun = imgur_upload, base.url = NULL)\n```\n"
-#       cat(str, orig, file = x, sep = "\n")
-#     }
+    #     else if(grepl("\\.[rR]nw$", x)) {
+    #       str <- "```{r echo=FALSE}\nknitr::opts_knit$set(upload.fun = imgur_upload, base.url = NULL)\n```\n"
+    #       cat(str, orig, file = x, sep = "\n")
+    #     }
   }
 }
 
 inject_root_dir <- function(x, path) {
   orig <- readLines(x)
   cat(sprintf("```{r echo=FALSE}
-knitr::opts_knit$set(root.dir = \"%s\")
-```\n", path), orig, file = x, sep = "\n")
+              knitr::opts_knit$set(root.dir = \"%s\")
+              ```\n", path), orig, file = x, sep = "\n")
 }
 
 # swapfilename <- function(x, filename){
@@ -190,4 +183,34 @@ code_handler <- function(x, filename){
   tmp <- file.path(tempdir(), filename)
   writeLines(text, tmp)
   return(tmp)
+}
+
+is.binary <- function(x, maximum = 1000) {
+  if (!is.dir(x)) {
+    f <- file(x, "rb", raw = TRUE)
+    b <- readBin(f, "int", maximum, size = 1, signed = FALSE)
+    tmp <- suppressWarnings(max(b)) > 128
+    close.connection(f)
+    tmp
+  } else {
+    FALSE
+  }
+}
+
+is_binary <- function(x) {
+  bin <- vapply(x, is.binary, logical(1))
+  if (any(bin)) {
+    stop("Binary files not supported\n", x[bin], call. = FALSE)
+  }
+}
+
+is.dir <- function(x) {
+  file.info(x)$isdir
+}
+
+is_dir <- function(x) {
+  bin <- vapply(x, is.dir, logical(1))
+  if (any(bin)) {
+    stop("Directories not supported\n", x[bin], call. = FALSE)
+  }
 }
